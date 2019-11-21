@@ -1,0 +1,73 @@
+# Reference: <https://postmarketos.org/vendorkernel>
+# Kernel config based on: arch/arm/configs/(CHANGEME!)
+
+pkgname="linux-gm-mehmet"
+pkgver=3.0.101
+pkgrel=0
+pkgdesc="General Mobile E-tab 4 kernel fork"
+arch="armhf"
+_carch="arm"
+_flavor="gm-mehmet"
+url="https://kernel.org"
+license="GPL-2.0-only"
+options="!strip !check !tracedeps"
+makedepends="perl sed installkernel bash gmp-dev bc linux-headers elfutils-dev devicepkg-dev gcc6"
+
+# Compiler: latest GCC from Alpine
+#HOSTCC="${CC:-gcc}"
+#HOSTCC="${HOSTCC#${CROSS_COMPILE}}"
+
+# Compiler: GCC 6 (doesn't boot when compiled with newer versions)
+if [ "${CC:0:5}" != "gcc6-" ]; then
+	CC="gcc6-$CC"
+	HOSTCC="gcc6-gcc"
+	CROSS_COMPILE="gcc6-$CROSS_COMPILE"
+fi
+
+# Source
+_repository="willow"
+_commit="455b3a3cdebc02ad7b6da477851f625b552225ab"
+_config="config-${_flavor}.${arch}"
+source="
+	$pkgname-$_commit.tar.gz::https://github.com/tahamsaglam/${_repository}/archive/${_commit}.tar.gz
+	$_config
+	03_fix_paranoid_network_disabled.patch
+	gcc7-give-up-on-ilog2-const-optimizations.patch
+"
+builddir="$srcdir/${_repository}-${_commit}"
+
+prepare() {
+	default_prepare
+	downstreamkernel_prepare "$srcdir" "$builddir" "$_config" "$_carch" "$HOSTCC"
+}
+
+build() {
+	unset LDFLAGS
+	make ARCH="$_carch" CC="${CC:-gcc}" \
+		KBUILD_BUILD_VERSION="$((pkgrel + 1 ))-postmarketOS"
+}
+
+package() {
+	# kernel.release
+	install -D "$builddir/include/config/kernel.release" \
+		"$pkgdir/usr/share/kernel/$_flavor/kernel.release"
+
+	# zImage (find the right one)
+	cd "$builddir/arch/$_carch/boot"
+	_target="$pkgdir/boot/vmlinuz-$_flavor"
+	for _zimg in zImage-dtb Image.gz-dtb *zImage Image; do
+		[ -e "$_zimg" ] || continue
+		msg "zImage found: $_zimg"
+		install -Dm644 "$_zimg" "$_target"
+		break
+	done
+	if ! [ -e "$_target" ]; then
+		error "Could not find zImage in $PWD!"
+		return 1
+	fi
+}
+
+sha512sums="d01273fee1d26bd0b9667ec75f8412bc32b5cb13f2a2368e39002b0bd5883a3414d2b84df93a8801c181b77d3e4c384b0664486af3148b8e7cea74ad78090dc5  linux-gm-mehmet-455b3a3cdebc02ad7b6da477851f625b552225ab.tar.gz
+db7da9157242007f6217321e68379850d99babf4d139beeb0cc29b60ea9f832d8a238064491741f5bf3df166ee4fc558735cf5f180d5aee8edfc84d43ffeb4f2  config-gm-mehmet.armhf
+df62e03666313bb03d9a455eac875f170a55d378b6e56b847c1c6ff1ce5cfafcfdf1d7605754ca3c684840ea00357f9ec4c6621f6ff77377132a484b9258f6f7  03_fix_paranoid_network_disabled.patch
+77eba606a71eafb36c32e9c5fe5e77f5e4746caac292440d9fb720763d766074a964db1c12bc76fe583c5d1a5c864219c59941f5e53adad182dbc70bf2bc14a7  gcc7-give-up-on-ilog2-const-optimizations.patch"
